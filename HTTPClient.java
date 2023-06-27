@@ -13,6 +13,7 @@ public class HTTPClient {
     private Map<String, String> args = new HashMap<String, String>();
     private Map<String, String> headers = new HashMap<String, String>();
     private boolean isJson = false;
+    private int lastCode = 0;
 
     public HTTPClient(){}
     public HTTPClient(String url)
@@ -65,18 +66,21 @@ public class HTTPClient {
         this.isJson = isJson;
     }
 
+    public void clear()
+    {
+        args.clear();
+        headers.clear();
+    }
+
+    public int lastStatus()
+    {
+        return lastCode;
+    }
+
     public String send()
     {
         String output = "";
         try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setRequestMethod(method);
-            connection.setDoOutput(true);
-            for(Map.Entry<String, String> entry : headers.entrySet())
-            {
-                connection.setRequestProperty(entry.getKey(), entry.getValue());
-            }
-
             byte[] out = {};
             StringJoiner joiner = new StringJoiner("&");
             if(!isJson) {
@@ -97,10 +101,31 @@ public class HTTPClient {
                 out = jsonPayload.getBytes(StandardCharsets.UTF_8);
             }
             int argLength = out.length;
-            connection.setFixedLengthStreamingMode(argLength);
+
+            HttpURLConnection connection;
+            if(method == "GET" && !isJson && argLength > 0)
+            {
+                connection = (HttpURLConnection) new URL(url + "?" + out).openConnection();
+            }
+            else
+            {
+                connection = (HttpURLConnection) new URL(url).openConnection();
+            }
+            connection.setRequestMethod(method);
+
+            for(Map.Entry<String, String> entry : headers.entrySet())
+            {
+                connection.setRequestProperty(entry.getKey(), entry.getValue());
+            }
+
+            if(method == "POST") {
+                connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(argLength);
+            }
 
             connection.connect();
-            if(argLength != 0) {
+
+            if (method == "POST") {
                 OutputStream os = connection.getOutputStream();
                 os.write(out);
                 os.close();
@@ -108,13 +133,17 @@ public class HTTPClient {
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
             String line;
-            while((line = reader.readLine()) != null)
+            while((line = reader.readLine()) == null){}
+            do
             {
                 output += line + "\n";
-            }
+            }while((line = reader.readLine()) != null);
             reader.close();
+
+            lastCode = connection.getResponseCode();
         }catch(Exception e)
         {
+            System.out.println(e.getLocalizedMessage());
             output = "Error: " + e.getLocalizedMessage();
         }
         return output;
